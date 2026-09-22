@@ -1,0 +1,10 @@
+# Swift Package Manager and Xcode build products.
+.build/
+.swiftpm/
+DerivedData/
+
+# Locally generated release artifacts.
+dist/
+
+# macOS filesystem metadata.
+.DS_Store
