@@ -2,8 +2,8 @@ import Foundation
 
 /// Centralizes stable application metadata, persisted preference keys, and update endpoints.
 enum AppConstants {
-  /// The first public version of KeepMeUp.
-  static let fallbackVersion = "0.1.0"
+  /// The current release version used when bundle metadata is unavailable during development.
+  static let fallbackVersion = "0.2.0"
 
   /// The reverse-DNS identifier used by the packaged application.
   static let bundleIdentifier = "com.arynsehgl.keepmeup"
@@ -16,6 +16,12 @@ enum AppConstants {
 
   /// Stores whether display-sleep prevention should be restored for the next awake session.
   static let preventDisplaySleepKey = "preventDisplaySleep"
+
+  /// Stores whether the user wants consent-based computer activity maintained during awake sessions.
+  static let maintainActivityKey = "maintainActivity"
+
+  /// Stores whether the one-time activity-generation explanation has been accepted.
+  static let completedActivityExplanationKey = "completedActivityExplanation"
 
   /// Stores whether the one-time onboarding experience has been completed.
   static let completedFirstLaunchKey = "completedFirstLaunch"

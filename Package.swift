@@ -20,6 +20,7 @@ let package = Package(
       dependencies: ["KeepMeUpCore"],
       linkerSettings: [
         .linkedFramework("AppKit"),
+        .linkedFramework("CoreGraphics"),
         .linkedFramework("IOKit"),
         .linkedFramework("ServiceManagement"),
         .linkedFramework("UserNotifications"),

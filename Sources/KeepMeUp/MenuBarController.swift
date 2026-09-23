@@ -12,6 +12,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
   /// The active-session coordinator that powers menu state and actions.
   private let sessions: SessionController
 
+  /// The consent-based activity controller reflected by the menu and status line.
+  private let activity: ActivityController
+
   /// The native Login Item interface reflected by the menu toggle.
   private let loginItems: LoginItemController
 
@@ -30,11 +33,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
   /// Creates the controller and wires all state-change callbacks before presenting the icon.
   init(
     sessions: SessionController,
+    activity: ActivityController,
     loginItems: LoginItemController,
     notifications: NotificationController,
     updateChecker: GitHubUpdateChecker
   ) {
     self.sessions = sessions
+    self.activity = activity
     self.loginItems = loginItems
     self.notifications = notifications
     self.updateChecker = updateChecker
@@ -46,6 +51,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     sessions.onStateChange = { [weak self] in
       self?.refreshStatusPresentation()
     }
+    activity.onStateChange = { [weak self] in
+      self?.refreshStatusPresentation()
+    }
     sessions.onTimedSessionEnded = { [weak self] in
       self?.notifications.postTimedSessionEnded()
     }
@@ -54,6 +62,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
   /// Rebuilds the menu immediately before display so every toggle reflects macOS state.
   func menuNeedsUpdate(_ menu: NSMenu) {
+    activity.refreshAuthorization()
     rebuildMenu()
   }
 
@@ -66,8 +75,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
   private func rebuildMenu() {
     menu.removeAllItems()
     let snapshot = sessions.snapshot
+    let activitySnapshot = activity.snapshot
 
-    let status = NSMenuItem(title: statusTitle(for: snapshot), action: nil, keyEquivalent: "")
+    let status = NSMenuItem(
+      title: statusTitle(for: snapshot, activity: activitySnapshot),
+      action: nil,
+      keyEquivalent: ""
+    )
     status.isEnabled = false
     menu.addItem(status)
     statusMenuItem = status
@@ -87,6 +101,36 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     durationMenuItem.submenu = makeDurationMenu(snapshot: snapshot)
     durationMenuItem.isEnabled = snapshot.isActive
     menu.addItem(durationMenuItem)
+
+    let activityToggle = NSMenuItem(
+      title: activityTitle(for: activitySnapshot),
+      action: #selector(toggleMaintainActivity),
+      keyEquivalent: ""
+    )
+    activityToggle.target = self
+    activityToggle.state = activityMenuState(for: activitySnapshot)
+    activityToggle.isEnabled = true
+    menu.addItem(activityToggle)
+
+    if activitySnapshot.state == .permissionRequired {
+      let activitySettings = NSMenuItem(
+        title: "Open Accessibility Settings…",
+        action: #selector(openAccessibilitySettings),
+        keyEquivalent: ""
+      )
+      activitySettings.target = self
+      activitySettings.isEnabled = true
+      menu.addItem(activitySettings)
+    } else if activitySnapshot.state == .failed {
+      let activityError = NSMenuItem(
+        title: "Show Activity Error…",
+        action: #selector(showActivityError),
+        keyEquivalent: ""
+      )
+      activityError.target = self
+      activityError.isEnabled = true
+      menu.addItem(activityError)
+    }
 
     let displayToggle = NSMenuItem(
       title: "Prevent Display Sleep",
@@ -201,6 +245,41 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
   }
 
+  /// Enables or disables transparent activity maintenance after the one-time consent explanation.
+  @objc private func toggleMaintainActivity() {
+    if activity.snapshot.isEnabled {
+      activity.setEnabled(false)
+      rebuildMenu()
+      return
+    }
+
+    if activity.needsExplanation {
+      guard presentActivityExplanation() else {
+        return
+      }
+      activity.recordExplanationAccepted()
+    }
+
+    activity.setEnabled(true)
+    if !activity.requestPostEventAccess() {
+      presentActivityPermissionRequired()
+    }
+    rebuildMenu()
+  }
+
+  /// Opens the authoritative macOS privacy pane without modifying Accessibility authorization.
+  @objc private func openAccessibilitySettings() {
+    activity.openAccessibilitySettings()
+  }
+
+  /// Displays the latest in-memory activity pulse failure when the user requests details.
+  @objc private func showActivityError() {
+    presentMessage(
+      title: "Maintain Activity Could Not Continue",
+      message: activity.snapshot.errorDescription ?? "An unknown local activity error occurred."
+    )
+  }
+
   /// Updates native Login Item registration and directs the user to approval when required.
   @objc private func toggleStartAtLogin() {
     do {
@@ -258,23 +337,45 @@ final class MenuBarController: NSObject, NSMenuDelegate {
   /// Updates the icon and any visible status line without showing menu-bar text.
   private func refreshStatusPresentation() {
     let snapshot = sessions.snapshot
+    let activitySnapshot = activity.snapshot
     let symbolName = snapshot.isActive ? "bolt.circle.fill" : "moon.zzz"
+    let accessibilityDescription =
+      activitySnapshot.state == .active
+      ? "KeepMeUp awake and maintaining activity"
+      : (snapshot.isActive ? "KeepMeUp active" : "KeepMeUp inactive")
     statusItem.button?.image = NSImage(
       systemSymbolName: symbolName,
-      accessibilityDescription: snapshot.isActive ? "KeepMeUp active" : "KeepMeUp inactive"
+      accessibilityDescription: accessibilityDescription
     )
-    statusItem.button?.toolTip = statusTitle(for: snapshot)
-    statusMenuItem?.title = statusTitle(for: snapshot)
+    statusItem.button?.toolTip = statusTitle(for: snapshot, activity: activitySnapshot)
+    statusMenuItem?.title = statusTitle(for: snapshot, activity: activitySnapshot)
   }
 
   /// Formats the current active state or countdown for display inside the dropdown.
-  private func statusTitle(for snapshot: SessionSnapshot) -> String {
+  private func statusTitle(
+    for snapshot: SessionSnapshot,
+    activity activitySnapshot: ActivityModeSnapshot
+  ) -> String {
     guard snapshot.isActive else {
       return "Status: Off"
     }
 
+    let awakeDescription: String
+    switch activitySnapshot.state {
+    case .active:
+      awakeDescription = "Awake + Activity"
+    case .permissionRequired:
+      awakeDescription = "Awake (Activity Permission Required)"
+    case .paused:
+      awakeDescription = "Awake (Activity Paused)"
+    case .failed:
+      awakeDescription = "Awake (Activity Error)"
+    case .off, .waitingForAwakeSession:
+      awakeDescription = "Awake"
+    }
+
     guard let remainingTime = snapshot.remainingTime() else {
-      return "Status: Awake — Until Turned Off"
+      return "Status: \(awakeDescription) — Until Turned Off"
     }
 
     let totalSeconds = max(0, Int(ceil(remainingTime)))
@@ -285,7 +386,61 @@ final class MenuBarController: NSObject, NSMenuDelegate {
       hours > 0
       ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
       : String(format: "%02d:%02d", minutes, seconds)
-    return "Status: Awake — \(countdown) remaining"
+    return "Status: \(awakeDescription) — \(countdown) remaining"
+  }
+
+  /// Formats the activity toggle title so missing permission or a pulse error is never hidden.
+  private func activityTitle(for snapshot: ActivityModeSnapshot) -> String {
+    switch snapshot.state {
+    case .permissionRequired:
+      return "Maintain Activity (Permission Required)"
+    case .failed:
+      return "Maintain Activity (Error)"
+    case .off, .waitingForAwakeSession, .paused, .active:
+      return "Maintain Activity"
+    }
+  }
+
+  /// Maps desired and effective activity state to an honest menu checkmark presentation.
+  private func activityMenuState(for snapshot: ActivityModeSnapshot) -> NSControl.StateValue {
+    guard snapshot.isEnabled else {
+      return .off
+    }
+
+    switch snapshot.state {
+    case .permissionRequired, .failed:
+      return .mixed
+    case .off, .waitingForAwakeSession, .paused, .active:
+      return .on
+    }
+  }
+
+  /// Explains exactly what activity mode posts and records no consent unless Continue is selected.
+  private func presentActivityExplanation() -> Bool {
+    NSApp.activate(ignoringOtherApps: true)
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = "Enable Maintain Activity?"
+    alert.informativeText =
+      "When you have not used the Mac for about four minutes, KeepMeUp will move the pointer by one pixel and immediately return it. It never clicks or types. This keeps the display awake, requires macOS Accessibility permission, and pauses when your user session is inactive or locked."
+    alert.addButton(withTitle: "Continue")
+    alert.addButton(withTitle: "Cancel")
+    return alert.runModal() == .alertFirstButtonReturn
+  }
+
+  /// Explains how to grant or recover post-event authorization without changing it automatically.
+  private func presentActivityPermissionRequired() {
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = "Accessibility Permission Required"
+    alert.informativeText =
+      "In Privacy & Security → Accessibility, enable KeepMeUp. Return to the menu afterward; KeepMeUp will recheck the setting without reading or recording your input."
+    alert.addButton(withTitle: "Open Settings")
+    alert.addButton(withTitle: "Not Now")
+
+    if alert.runModal() == .alertFirstButtonReturn {
+      activity.openAccessibilitySettings()
+    }
   }
 
   /// Checks GitHub and either updates menu state silently or presents a requested result alert.
