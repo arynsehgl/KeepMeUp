@@ -11,8 +11,8 @@ enum AppConstants {
   /// The GitHub account that hosts releases.
   static let repositoryOwner = "arynsehgl"
 
-  /// The current GitHub repository name; GitHub redirects this URL after a future repository rename.
-  static let repositoryName = "Maccy-Up"
+  /// The canonical GitHub repository name used by update checks and public links.
+  static let repositoryName = "KeepMeUp"
 
   /// Stores whether display-sleep prevention should be restored for the next awake session.
   static let preventDisplaySleepKey = "preventDisplaySleep"
