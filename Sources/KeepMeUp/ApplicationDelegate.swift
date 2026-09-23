@@ -6,6 +6,9 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   /// The native power assertion owner shared by all sessions.
   private let sleepAssertions = SleepAssertionController()
 
+  /// The consent-based activity controller retained for the complete application lifetime.
+  private let activity = ActivityController()
+
   /// The notification service retained for the complete application lifetime.
   private let notifications = NotificationController()
 
@@ -19,7 +22,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   private let firstRun = FirstRunCoordinator()
 
   /// The session state owner created after the power controller is initialized.
-  private lazy var sessions = SessionController(sleepAssertions: sleepAssertions)
+  private lazy var sessions = SessionController(
+    sleepAssertions: sleepAssertions,
+    activity: activity
+  )
 
   /// The menu controller retained to keep the status item visible.
   private var menuBarController: MenuBarController?
@@ -28,6 +34,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     menuBarController = MenuBarController(
       sessions: sessions,
+      activity: activity,
       loginItems: loginItems,
       notifications: notifications,
       updateChecker: updateChecker

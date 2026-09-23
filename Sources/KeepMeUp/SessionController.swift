@@ -32,6 +32,9 @@ final class SessionController {
   /// The controller that owns native IOKit assertions.
   private let sleepAssertions: SleepAssertionController
 
+  /// The controller that starts and stops consent-based activity with each awake session.
+  private let activity: ActivityController
+
   /// The preference store used to remember display-sleep behavior across launches.
   private let preferences: UserDefaults
 
@@ -45,8 +48,13 @@ final class SessionController {
   private var countdownTimer: Timer?
 
   /// Creates a session controller with explicit dependencies for predictable lifecycle management.
-  init(sleepAssertions: SleepAssertionController, preferences: UserDefaults = .standard) {
+  init(
+    sleepAssertions: SleepAssertionController,
+    activity: ActivityController,
+    preferences: UserDefaults = .standard
+  ) {
     self.sleepAssertions = sleepAssertions
+    self.activity = activity
     self.preferences = preferences
   }
 
@@ -63,6 +71,7 @@ final class SessionController {
   /// Starts or replaces a session and applies the remembered display-sleep preference.
   func start(duration: SessionDuration) throws {
     stopCountdownTimer()
+    activity.endAwakeSession()
     sleepAssertions.releaseAll()
 
     do {
@@ -72,6 +81,7 @@ final class SessionController {
         try sleepAssertions.preventDisplaySleep()
       }
     } catch {
+      activity.endAwakeSession()
       sleepAssertions.releaseAll()
       activeDuration = nil
       endDate = nil
@@ -81,6 +91,7 @@ final class SessionController {
 
     activeDuration = duration
     endDate = duration.interval.map { Date().addingTimeInterval($0) }
+    activity.beginAwakeSession()
     startCountdownTimerIfNeeded()
     onStateChange?()
   }
@@ -91,6 +102,7 @@ final class SessionController {
     sleepAssertions.releaseAll()
     activeDuration = nil
     endDate = nil
+    activity.endAwakeSession()
     onStateChange?()
   }
 
@@ -152,6 +164,7 @@ final class SessionController {
   /// Releases all process-owned power assertions if the controller is destroyed unexpectedly.
   deinit {
     stopCountdownTimer()
+    activity.endAwakeSession()
     sleepAssertions.releaseAll()
   }
 }

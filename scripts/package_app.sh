@@ -15,7 +15,7 @@ RESOURCES_DIRECTORY="${CONTENTS_DIRECTORY}/Resources"
 DMG_STAGING_DIRECTORY="${BUILD_DIRECTORY}/dmg"
 ICONSET_DIRECTORY="${BUILD_DIRECTORY}/AppIcon.iconset"
 MASTER_ICON="${BUILD_DIRECTORY}/AppIcon-1024.png"
-DMG_FILENAME="KeepMeUp-0.1.0.dmg"
+DMG_FILENAME="KeepMeUp-0.2.0.dmg"
 DMG_PATH="${OUTPUT_DIRECTORY}/${DMG_FILENAME}"
 
 # Keeps SwiftPM and compiler caches inside script-owned staging instead of writing to user directories.
